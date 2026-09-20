@@ -1,0 +1,12 @@
+{
+  "baseline": {
+    "dataframe_bytes": 6400132,
+    "peak_rss_bytes": 127156224,
+    "rows": 100000
+  },
+  "optimized": {
+    "dataframe_bytes": 1800132,
+    "peak_rss_bytes": 121372672,
+    "rows": 100000
+  }
+}
