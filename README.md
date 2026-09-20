@@ -1,10 +1,39 @@
 # Milan mobile Internet traffic forecasting
 
-A formative empirical comparison of autoregression, additive Holt-Winters and a small LSTM. Forecasts are one interval (10 minutes) ahead for December 16-22, 2013 in Europe/Rome. The top three areas are selected by total Internet activity over all 62 published daily files. This retrospective selection is assignment-mandated; observations after December 15 never enter parameter fitting or model selection.
+This project studies whether short-term Internet traffic in Milan can be forecast from its recent history. We use the Telecom Italia mobile traffic dataset and compare three models:
 
-## Run
+- autoregression (AR)
+- additive Holt-Winters exponential smoothing
+- a small long short-term memory network (LSTM)
 
-Python 3.12 is recommended. From this folder:
+The task is a one-step-ahead forecast at ten-minute intervals. The test period is 16–22 December 2013, and the three areas used in the study are the areas with the highest total Internet activity across the published data.
+
+## What we did
+
+The data is aggregated by Square ID and timestamp. We split the time series chronologically:
+
+- training: 1–8 December
+- validation: 9–15 December
+- test: 16–22 December
+
+The validation period is used to select model settings. The test period is kept separate until the final comparison. Each model is evaluated on the same observed targets using MAE and RMSE. MAPE is also reported, excluding targets that are exactly zero.
+
+The forecasts are generated causally: for each interval, the model predicts before the observation for that interval is used. Missing intervals remain missing in the observed data. Missing values are only forward-filled when they are needed as model inputs, and genuine zero traffic values are preserved.
+
+## Results and generated files
+
+The main report is [`report.pdf`](report.pdf). The repository also contains the data used to reproduce the analysis:
+
+- `outputs/figures/` contains the exploratory analysis, forecasts, and error-window figures.
+- `outputs/tables/` contains the area ranking, predictions, validation experiments, metrics, timings, and failure-window tables.
+- `outputs/environment.json` records the Python environment, hardware, random seed, and timing definitions.
+- `outputs/preparation.json` records the preparation run, coverage, selected areas, and resource measurements.
+- `outputs/memory.json` contains the memory comparison between the baseline and optimized data-loading approaches.
+- `outputs/dataset_manifest.json` records the source version and checksums.
+
+## Reproducing the analysis
+
+Python 3.12 is recommended. From the project directory:
 
 ```bash
 python3 -m venv .venv
@@ -19,33 +48,30 @@ python src/report.py
 python src/verify.py
 ```
 
-The initial download transfers about 20.8 GB. The loader processes one approximately 330 MB source file at a time, verifies the official MD5 and size, writes compact Parquet aggregates and a completion audit, then deletes only its own raw intermediate. Harvard requires an email in its dataset guestbook. Set `DATAVERSE_EMAIL` to an email you authorize sharing with Harvard Dataverse before the first run. The loader uses the official guestbook POST and signed download URL; no access restriction is bypassed. Contact details remain outside tracked outputs. About 4 GB of free disk and several GB of RAM are recommended; keep additional headroom. Network speed dominates preparation time. Eight bounded HTTP byte ranges accelerate each daily download while daily files are still processed sequentially; the final whole-file checksum verifies their assembly. Cached daily files are reused; remove their matching Parquet and JSON files to rebuild a day. `outputs/dataset_manifest.json` records the exact source version and checksums. Daily aggregation reads only three columns in 250,000-row chunks. It retains only one day's intermediate groups, not the full raw dataset.
+The preparation step downloads approximately 20.8 GB from the official Harvard Dataverse release. Harvard requires an email address in its dataset guestbook, so set `DATAVERSE_EMAIL` to an address you are permitted to share before running the preparation script:
 
-## Outputs
+```bash
+export DATAVERSE_EMAIL="your-email@example.com"
+```
 
-- `outputs/report.pdf`: complete research report, including nine forecast comparisons.
-- `outputs/figures/`: labeled PNGs of EDA, predictions, and failure windows.
-- `outputs/tables/`: area ranking, predictions, validation experiments, epoch history, three metric tables, timings, peak errors, failure windows, and model ranks.
-- `outputs/memory.json`: identical 100,000-row sample in separate baseline/optimized processes.
-- `outputs/preparation.json`: full-run preparation memory/time, coverage and selected IDs.
-- `outputs/environment.json`: runtime, hardware, package versions, seed and timing definitions.
-- `docs/presentation.md`: outline for an individual 7-10 minute recording.
-- `docs/rubric.md`: evidence mapped to all 100 rubric points.
+The loader processes one source file at a time, checks its size and MD5 checksum, writes compact Parquet aggregates, and removes only its own raw intermediate file. It uses bounded HTTP byte ranges to speed up each download while processing daily files sequentially. Around 4 GB of free disk space and several GB of RAM are recommended, with additional headroom for the download and processing steps.
 
-## Design decisions
+Cached daily files are reused. To rebuild one day, remove that day's Parquet and JSON files. The complete source download is not required again when the cached files are available.
 
-Country-level records are summed at each Square ID/timestamp using float64. Blank Internet fields are skipped when other measured contributions exist; all-blank groups remain missing. Missing intervals remain NaN in observed outputs and are causally forward-filled only in inputs. All models score the same observed targets. Leading missing history triggers an error rather than inventing values. Genuine zeros are preserved. This conservative policy cannot distinguish an absent activity record from an outage; report coverage and avoid interpreting missing records as certain zero demand.
+## Implementation choices
 
-Use UTC for decoding Unix milliseconds and Europe/Rome for calendar splits. Training ends December 8; validation is December 9-15; test is December 16-22. Each forecast is generated before consuming the observation for that interval. Parameters remain fixed; Holt-Winters states update with new observations. Each area/model has its own selected configuration. Validation RMSE chooses the configuration; test RMSE does not tune anything. LSTM inputs and targets are standardized with training-only mean/std, then inverse transformed. AR uses original-unit lags; Holt-Winters divides by training std for numerical conditioning and reverses it for predictions. All predictions are clipped at zero.
+All country-level records are summed for each Square ID and timestamp using `float64`. The models use a small predefined parameter grid. This keeps the comparison manageable and makes the selection procedure explicit; it is not intended to be an exhaustive search.
 
-The small predefined grid is an explicit parameter-optimization strategy allowed by `activity.tx`, not a claim of exhaustive model optimization. CPU, seed 42, one PyTorch thread, no batch shuffling, MSE loss, Adam, no dropout or extra layers. Final LSTM fits use the validation-selected epoch count. No spatial covariates or event labels are used. Persistence is a reference, not one of the three assessed models.
+The AR model works in the original units. Holt-Winters is scaled using the training standard deviation for numerical stability. LSTM inputs and targets are standardized using training-period statistics only. Predictions are converted back to the original units and clipped at zero.
 
-MAE and RMSE use all observed targets; MAPE excludes exact-zero targets and reports the number excluded. Small nonzero denominators can still dominate MAPE. Timing uses `perf_counter`: final fit includes preprocessing, inference includes the causal Python loop and HW updates, but excludes downloading/plotting/file I/O. Search training cost is reported separately; epoch validation is included in LSTM search cost. Single-run timings describe this hardware, not statistically stable latency estimates.
+The LSTM uses CPU execution, seed 42, one PyTorch thread, no batch shuffling, mean squared error loss, Adam optimization, no dropout, and no additional layers. Its final epoch count comes from validation. Timing results include the operations described in `outputs/environment.json` and should be interpreted as measurements for this machine, not as general performance guarantees.
 
-## Submission
+## Limitations
 
-This folder is ready for a GitHub repository, but is not published automatically. Keep the source documents, code, pinned dependencies, report, figures and result tables; exclude `data/` and `.venv/` using `.gitignore`. Do not commit raw data. Insert the actual GitHub URL and recorded individual-video URL into `docs/submission.json`, then regenerate the report. The author must understand and present the implementation and verify the institutional rules for declaring AI assistance.
+The analysis uses only the traffic history. It does not include spatial covariates, weather, public events, or other external information. The selection of the top three areas is retrospective because it is required by the assignment; observations after 15 December are not used for fitting or model selection.
+
+Missing records cannot always be distinguished from a genuine service outage. For that reason, coverage is reported and missing observations are not automatically interpreted as zero demand. MAPE can also be sensitive to small non-zero denominators, so it is considered alongside MAE and RMSE.
 
 ## Dataset attribution
 
-Data [from BigDataChallenge contest](http://www.telecomitalia.com/tit/en/bigdatachallenge.html), Telecom Italia; [official dataset](https://doi.org/10.7910/DVN/EGZHFV). The source and derived database outputs are provided under [ODbL 1.0](https://opendatacommons.org/licenses/odbl/1-0/), as specified in the preserved dataset manifest. The release metadata retrieved for this run is version 1.3; source data files are version 1.
+The data comes from the [Telecom Italia Big Data Challenge](http://www.telecomitalia.com/tit/en/bigdatachallenge.html). The official release is available through [Harvard Dataverse](https://doi.org/10.7910/DVN/EGZHFV). The source and derived database outputs are provided under the [ODbL 1.0](https://opendatacommons.org/licenses/odbl/1-0/) licence, as recorded in the dataset manifest.
