@@ -1,5 +1,6 @@
 """Chronological model selection and held-out evaluation; all outputs are measured."""
 import json
+import argparse
 import platform
 import subprocess
 import time
@@ -13,7 +14,7 @@ ROOT = Path(__file__).resolve().parents[1]
 OUT = ROOT/'outputs'
 
 
-def main():
+def main(only=None):
     frame = pd.read_parquet(ROOT/'data/selected.parquet')
     ids = json.loads((OUT/'preparation.json').read_text())['top_three']
     train_end = frame.index.searchsorted(pd.Timestamp('2013-12-09',tz='Europe/Rome'))
@@ -27,6 +28,19 @@ def main():
     classes = {'AR':AR,'Holt-Winters':HW,'LSTM':LSTM}
     rows, predictions, timing, experiments, epochs = [],[],[],[],[]
     fitted_parameters = []
+    if only:
+        # Refit one model after a numerical fix without repeating unaffected runs.
+        def retained(filename):
+            df = pd.read_csv(OUT/'tables'/filename)
+            return df[df.model != only]
+        rows = retained('metrics.csv').to_dict('records')
+        timing = retained('timings.csv').to_dict('records')
+        experiments = retained('experiments.csv').to_dict('records')
+        predictions = [retained('predictions.csv')]
+        epochs = pd.read_csv(OUT/'tables/epochs.csv').to_dict('records') if only != 'LSTM' else []
+        fitted_parameters = [p for p in json.loads((OUT/'fitted_parameters.json').read_text()) if p['model'] != only]
+        configs = [(name, config) for name, config in configs if name == only]
+        classes = {only: classes[only]}
     for area in ids:
         original = frame[area].to_numpy()
         values = frame[area].ffill().to_numpy()
@@ -73,8 +87,9 @@ def main():
                 tuning_seconds=sum(r['training_seconds'] for r in choices)))
             predictions.append(pd.DataFrame(dict(time=frame.index[test_start:test_end],area=area,model=name,
                 actual=original[test_start:test_end],predicted=pred)))
-        rows.append(dict(area=area,model='Persistence',config='previous observation',epochs=0,
-            **metrics(original[test_start:test_end],values[test_start-1:test_end-1])))
+        if not only:
+            rows.append(dict(area=area,model='Persistence',config='previous observation',epochs=0,
+                **metrics(original[test_start:test_end],values[test_start-1:test_end-1])))
         pd.DataFrame(rows).to_csv(OUT/'tables/metrics.csv',index=False)
         pd.DataFrame(timing).to_csv(OUT/'tables/timings.csv',index=False)
         pd.concat(predictions).to_csv(OUT/'tables/predictions.csv',index=False)
@@ -89,4 +104,7 @@ def main():
     (OUT/'environment.json').write_text(json.dumps(machine,indent=2))
     print(pd.DataFrame(rows).to_string(index=False),flush=True)
 
-if __name__=='__main__': main()
+if __name__=='__main__':
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--only', choices=['AR','Holt-Winters','LSTM'], help='Refresh one model in a completed run')
+    main(parser.parse_args().only)

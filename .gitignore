@@ -4,6 +4,4 @@ __pycache__/
 data/
 *.pyc
 .DS_Store
-outputs/preparation.log
-outputs/experiments.log
-outputs/analysis.log
+outputs/*.log

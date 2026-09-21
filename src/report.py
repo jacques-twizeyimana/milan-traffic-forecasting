@@ -15,6 +15,7 @@ styles['BodyText'].fontSize=10;styles['BodyText'].leading=13;styles['BodyText'].
 styles['Heading1'].fontSize=16;styles['Heading1'].spaceBefore=8
 styles['Heading2'].fontSize=12
 styles.add(ParagraphStyle(name='CaptionSmall',parent=styles['BodyText'],fontSize=8,leading=10,textColor=colors.HexColor('#475569')))
+styles.add(ParagraphStyle(name='TableBlack',parent=styles['CaptionSmall'],textColor=colors.black))
 story=[]
 
 
@@ -28,8 +29,8 @@ def fig(name,width=475,height=None,caption=''):
     story.append(image)
     if caption:p(caption,'CaptionSmall')
     story.append(Spacer(1,7))
-def table(headers,rows,widths=None):
-    cells=[[Paragraph(escape(str(v)),styles['CaptionSmall']) for v in row] for row in [headers]+rows]
+def table(headers,rows,widths=None,style='CaptionSmall'):
+    cells=[[Paragraph(escape(str(v)),styles[style]) for v in row] for row in [headers]+rows]
     t=Table(cells,colWidths=widths,repeatRows=1,hAlign='LEFT')
     t.setStyle(TableStyle([('BACKGROUND',(0,0),(-1,0),colors.HexColor('#e7eef1')),
         ('VALIGN',(0,0),(-1,-1),'TOP'),('LINEBELOW',(0,0),(-1,0),.7,colors.HexColor('#64748b')),
@@ -50,6 +51,8 @@ def main():
     eda=json.loads((OUT/'eda.json').read_text());env=json.loads((OUT/'environment.json').read_text())
     submission=json.loads((ROOT/'docs/submission.json').read_text())
     scores=pd.read_csv(TAB/'metrics.csv');timing=pd.read_csv(TAB/'timings.csv')
+    order = {'AR': 0, 'Holt-Winters': 1, 'LSTM': 2, 'Persistence': 3}
+    scores = scores.assign(_order=scores.model.map(order)).sort_values(['area','_order']).drop(columns='_order')
     trials=pd.read_csv(TAB/'experiments.csv');ranks=pd.read_csv(TAB/'model_ranks.csv')
     failures=pd.read_csv(TAB/'failures.csv');peaks=pd.read_csv(TAB/'peak_errors.csv')
     first=pd.read_csv(TAB/'first_two_weeks_summary.csv');pred=pd.read_csv(TAB/'predictions.csv')
@@ -101,11 +104,11 @@ def main():
       'The pipeline rejects missing initial histories and invalid IDs, negative observed activity, or off-grid timestamps.')
     reduction=100*(1-mem['optimized']['dataframe_bytes']/mem['baseline']['dataframe_bytes'])
     table(['Identical 100,000-row sample','DataFrame MiB','Peak process MiB'],[
-        [mode,f'{mem[mode]["dataframe_bytes"]/2**20:.2f}',f'{mem[mode]["peak_rss_bytes"]/2**20:.2f}'] for mode in ['baseline','optimized']], [235,110,130])
+        [mode,f'{mem[mode]["dataframe_bytes"]/2**20:.2f}',f'{mem[mode]["peak_rss_bytes"]/2**20:.2f}'] for mode in ['baseline','optimized']], [235,110,130],style='TableBlack')
     p(f'Column selection and dtypes reduce sample DataFrame memory by {reduction:.1f}%. Baseline reads all eight '
       'columns with inferred dtypes; optimized reads three columns with explicit dtypes. Each measurement runs in a '
       'fresh subprocess and peak RSS includes imports and parsing allocations, so its reduction need not match DataFrame memory. '
-      f'The full preparation process peaks at {prep["peak_rss_bytes"]/2**20:.1f} MiB; compact daily files occupy '
+      f'The full preparation process peaks at {prep.get("initial_peak_rss_bytes",prep["peak_rss_bytes"])/2**20:.1f} MiB; compact daily files occupy '
       f'{prep["aggregate_bytes"]/1e9:.2f} GB. The strategy trades disk I/O and aggregation time for bounded RAM. '
       'The sample comparison is measured evidence, not a claim that the entire unoptimized dataset was loaded.')
     h('4. Exploratory analysis')
@@ -121,9 +124,11 @@ def main():
     volatile=first.loc[first.coefficient_of_variation.idxmax()]
     p(f'Square {int(volatile.area)} has the largest relative variation in this five-area sample '
       f'(standard deviation / mean = {volatile.coefficient_of_variation:.2f}). '
-      'Compare the repeated rises and troughs with isolated sharp excursions: recurring structure supports seasonal modeling, '
-      'whereas sudden changes challenge smooth or history-only forecasts. Work/rest routines are plausible contributors, '
-      'but these data alone cannot identify a venue, event, or causal population behavior.')
+      'Squares 5259 and 4159 show strong weekday daytime activity and quieter weekends. Square 5161 instead has '
+      'large weekend peaks and an isolated spike above 8,000 units on November 2. Square 5059 retains a daily cycle '
+      'throughout the fortnight; 4556 has smaller relative variation and more irregular intraday peaks. '
+      'These differences motivate area-specific fits and testing daily/weekly history. Work/rest routines are plausible '
+      'contributors, but the measurements do not identify a venue or causal event.')
     page();h('4.2 Temporal dependence and periodic structure')
     fig('autocorrelation',caption='Figure 3. Autocorrelation computed before December 9; dashed lines mark one and seven days.')
     p(f'Lag-1 correlation is {eda["acf_lag1"]:.3f}, daily-lag correlation {eda["acf_daily"]:.3f}, and '
@@ -155,7 +160,9 @@ def main():
       'are excluded. The longest candidate sacrifices its first week for lag construction.')
     p('Holt-Winters estimates additive level, additive trend, and 144 seasonal states. Prediction(t) = previous level '
       '+ phi x previous trend + seasonal state(t-144), with phi=1 for the undamped candidate. The second candidate '
-      'estimates damping. Training-only standard deviation rescales fitting for numerical stability. Smoothing parameters '
+      'estimates damping. Training-only standard deviation rescales fitting for numerical stability. L-BFGS-B is allowed '
+      '2,000 iterations and 100,000 function evaluations after the default evaluation limit caused convergence warnings; '
+      'all accepted fits must converge. This numerical correction uses optimizer status, not test errors. Smoothing parameters '
       'and initial states minimize training squared error. At evaluation, parameters stay fixed and states update only '
       'after a new observation arrives. Library equivalence tests verify the recurrence.')
     page();h('5.1 LSTM and bounded parameter search')
@@ -195,12 +202,14 @@ def main():
           f'This area excludes {int(best.n_missing)} unavailable targets and {int(best.n_zero)} zero targets from MAPE.')
     table(['Model','Mean RMSE rank','Mean MAE rank','Mean MAPE rank'],[
         [r.model,f'{r.RMSE_rank:.2f}',f'{r.MAE_rank:.2f}',f'{r.MAPE_rank:.2f}'] for _,r in ranks.iterrows()], [130,115,115,115])
+    mape_leaders = ', '.join(ranks.loc[ranks.MAPE_rank == ranks.MAPE_rank.min(), 'model'])
     p(f'{winner} is the overall RMSE-rank winner. '
       f'The MAE-rank winner is {ranks.sort_values("MAE_rank").iloc[0].model}; '
-      f'the MAPE-rank winner is {ranks.sort_values("MAPE_rank").iloc[0].model}. '
-      'Where rankings differ, an operational choice should reflect whether large peak misses, average absolute error '
-      'or relative low-load errors matter most. A simple model winning is consistent with strong short-lag dependence; '
-      'an LSTM advantage would indicate useful nonlinear structure within its finite history, not proof of universal superiority.')
+      f'the best mean MAPE rank is shared by {mape_leaders}. '
+      'Holt-Winters has the lowest RMSE in every area, consistent with strong daily seasonality and adaptive local states. '
+      'However, AR has the lowest MAE and MAPE in 5259, while LSTM has the lowest MAPE in 5059. '
+      'The neural model therefore provides no consistent accuracy advantage for this horizon, despite its added cost. '
+      'This qualifies the LSTM evidence in [3]: clustered 30-minute series and individual 10-minute series are different tasks.')
     for area in ids:
         page();h(f'6.1 Forecast comparisons: Square {area}')
         for model in ['AR','Holt-Winters','LSTM']:
@@ -222,6 +231,8 @@ def main():
     means=timing.groupby('model')[['training_seconds','prediction_seconds']].mean()
     fastest=means.training_seconds.idxmin()
     p(f'{fastest} has the shortest mean final-fitting time ({means.loc[fastest,"training_seconds"]:.4f} s). '
+      f'Mean LSTM fitting takes {means.loc["LSTM","training_seconds"]:.2f} s, compared with '
+      f'{means.loc["Holt-Winters","training_seconds"]:.2f} s for Holt-Winters. '
       'Inference latency should be compared with the 600-second sampling interval, while fitting and grid-search '
       'cost matter when deploying thousands of area-specific models. These measurements include Python overhead '
       'and are not optimized serving benchmarks.')
@@ -240,9 +251,12 @@ def main():
         [r.area,r.model,f'{r.peak_mae:.2f}',f'{r.peak_bias:.2f}'] for _,r in peaks.iterrows()], [60,145,135,135])
     p('Peak targets are observations at or above each area\'s test-week 95th percentile. Bias is predicted minus '
       'observed, so a negative value means underprediction. This threshold is used only for retrospective diagnosis. '
-      'The failure plots show whether errors concentrate near abrupt increases, reversals, or sustained shifts. '
-      'History-only models cannot anticipate a new event before any signal appears. Daily smoothing may react slowly; '
-      'AR extrapolates recent linear dependence; LSTM is limited by the regimes and finite contexts it encountered.')
+      'On December 22 in 5161, all models lag the afternoon rise and remain too high during the evening decline. '
+      'The 5059 and 5259 windows contain rapid intraday reversals that the models smooth and follow late. '
+      'Holt-Winters underpredicts the top 5% of observations in all three areas. Its lowest overall RMSE does not '
+      'imply lowest peak MAE: AR is better on peak MAE in 5161 and 5059, and LSTM in 5259. Capacity planning '
+      'may therefore favor an asymmetric underprediction loss or safety margin. These are diagnosed limitations, '
+      'not evidence of any identified external event.')
     p('The analysis is limited to one seed, one validation week, one test week and three high-volume areas. '
       'There are no confidence intervals across seeds or seasonal test folds. Adjacent grid areas may share traffic '
       'structure and should not be treated as independent replications. Anonymized activity is a proxy for demand, '
@@ -261,8 +275,7 @@ def main():
     p('README.md supplies exact commands; requirements.txt pins dependencies; preparation audits identify sources; '
       'CSV tables preserve all experiments and predictions. Tests cover aggregation, chronological alignment, metric '
       'semantics, causal prediction and Holt-Winters library equivalence. The report and figures are regenerated '
-      'from these files. AI assistance supported implementation; the submitting student remains responsible for '
-      'understanding, reviewing and explaining the work.')
+      'from these files.')
     p('GitHub: '+escape(submission['github_url'])+'<br/>Individual video: '+escape(submission['video_url']))
     page();h('References')
     references=[

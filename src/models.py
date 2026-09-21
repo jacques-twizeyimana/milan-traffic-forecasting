@@ -46,7 +46,10 @@ class HW:
         self.scale = max(float(np.std(values)),1.)
         self.result = ExponentialSmoothing(np.asarray(values)/self.scale, trend='add',
             damped_trend=self.damped, seasonal='add', seasonal_periods=self.period,
-            initialization_method='estimated').fit(optimized=True, use_brute=False)
+            initialization_method='estimated').fit(optimized=True, use_brute=False,
+                minimize_kwargs={'options': {'maxiter': 2000, 'maxfun': 100000}})
+        if not self.result.mle_retvals.success:
+            raise RuntimeError(f'Holt-Winters did not converge: {self.result.mle_retvals.message}')
         p = self.result.params
         self.alpha, self.beta, self.gamma = p['smoothing_level'],p['smoothing_trend'],p['smoothing_seasonal']
         self.phi = p['damping_trend'] if self.damped else 1.

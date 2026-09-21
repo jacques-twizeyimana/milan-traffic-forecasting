@@ -29,6 +29,8 @@ def main():
     assert len(metrics)==12 and len(trials)==27
     assert np.isfinite(metrics[['MAE','RMSE']]).all().all()
     assert (metrics.groupby('area').n_scored.nunique()==1).all()
+    parameters=json.loads((OUT/'fitted_parameters.json').read_text())
+    assert all(p['converged'] for p in parameters if p['model']=='Holt-Winters')
     for _,r in metrics[metrics.model!='Persistence'].iterrows():
         best=trials[(trials.area==r.area)&(trials.model==r.model)].sort_values('RMSE').iloc[0]
         assert r.config==best.config
