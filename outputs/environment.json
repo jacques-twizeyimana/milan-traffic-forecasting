@@ -1,0 +1,12 @@
+{
+  "platform": "macOS-27.0-arm64-arm-64bit",
+  "processor": "Apple M3 Pro",
+  "cpu_count": 11,
+  "memory_bytes": 19327352832,
+  "python": "3.12.14",
+  "torch_threads": 1,
+  "seed": 42,
+  "device": "CPU",
+  "timing": "perf_counter wall-clock; final fit and sequential forecast loop separately; excludes file IO and plotting",
+  "dependencies": "certifi==2026.7.22\ncharset-normalizer==3.5.1\ncontourpy==1.4.0\ncycler==0.12.1\nfilelock==4.0.1\nfonttools==4.65.0\nformulaic==1.2.2\nfsspec==2026.9.0\nidna==3.20\niniconfig==2.3.0\ninterface_meta==2.0.1\nJinja2==3.1.6\nkiwisolver==1.5.1\nMarkupSafe==3.0.3\nmatplotlib==3.11.2\nmpmath==1.3.0\nnarwhals==2.26.0\nnetworkx==3.6.1\nnumpy==2.5.3\npackaging==26.3\npandas==3.0.6\npatsy==1.0.3\npillow==12.3.0\npluggy==1.6.0\npsutil==7.2.2\npyarrow==25.0.1\nPygments==2.21.0\npyparsing==3.3.2\npypdf==6.19.0\npytest==9.1.1\npython-dateutil==2.9.0.post0\nreportlab==5.0.1\nrequests==2.34.2\nscipy==1.18.1\nsetuptools==84.0.0\nsix==1.17.0\nstatsmodels==0.15.0\nsympy==1.14.0\ntorch==2.14.0\ntyping_extensions==4.16.0\nurllib3==2.8.0\nwrapt==2.4.1\n"
+}

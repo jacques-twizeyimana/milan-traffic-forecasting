@@ -1,0 +1,23 @@
+{
+  "files": 62,
+  "source_bytes": 20804803507,
+  "aggregate_bytes": 665563695,
+  "top_three": [
+    5161,
+    5059,
+    5259
+  ],
+  "start": "2013-11-01 00:00:00+01:00",
+  "end": "2014-01-01 23:50:00+01:00",
+  "missing_selected": {
+    "4159": 0,
+    "4556": 0,
+    "5059": 0,
+    "5161": 0,
+    "5259": 0
+  },
+  "elapsed_seconds": 2.8449399169767275,
+  "peak_rss_bytes": 355368960,
+  "initial_elapsed_seconds": 3585.053415125003,
+  "initial_peak_rss_bytes": 733986816
+}

@@ -1,0 +1,8 @@
+{
+  "status": "passed",
+  "source_files": 62,
+  "forecast_combinations": 9,
+  "forecast_rows": 9072,
+  "validation_experiments": 27,
+  "pdf_pages": 14
+}
